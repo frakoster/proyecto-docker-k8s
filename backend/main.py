@@ -1,6 +1,7 @@
+import logging
 import asyncio
 from math import sin, cos, radians
-from fastapi import FastAPI, WebSocket, Depends, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, Float, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
@@ -37,10 +38,13 @@ Base.metadata.create_all(bind=engine)
 # Configuración de FastAPI
 app = FastAPI()
 
+# Configuración de logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+
 # Middleware para permitir CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permitir todas las URLs (ajustar en producción)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,34 +52,67 @@ app.add_middleware(
 
 # Ruta para iniciar una nueva ejecución
 @app.post("/start")
-async def start_execution(db=Depends(SessionLocal)):
+async def start_execution():
+    db = SessionLocal()
     execution = Execution()
-    db.add(execution)
-    db.commit()
-    return {"message": "Ejecución iniciada", "execution_id": execution.id}
+    try:
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+        logging.info(f"Ejecución iniciada con ID: {execution.id}")
+        return {"message": "Ejecución iniciada", "execution_id": execution.id}
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error al iniciar la ejecución: {e}")
+        return {"error": "No se pudo iniciar la ejecución"}
+    finally:
+        db.close()
 
 # Ruta WebSocket para datos en tiempo real
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    db = SessionLocal()
     try:
-        await websocket.accept()  # Asegúrate de aceptar todas las conexiones
-        angle = 0  # Ángulo inicial
+        logging.info("Intentando aceptar conexión WebSocket")
+        await websocket.accept()
+        logging.info("Conexión WebSocket aceptada")
+        angle = 0
+
+        # Crear una nueva ejecución para los movimientos
+        execution = Execution()
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+        execution_id = execution.id
+
         while True:
             angle = (angle + 5) % 360
             x = cos(radians(angle)) * 5
             y = sin(radians(angle)) * 5
             scale = 1 + 0.1 * sin(radians(angle))
 
-            # Enviar datos dinámicos
+            # Guardar movimiento en la base de datos
+            movement = Movement(
+                execution_id=execution_id,
+                position_x=x,
+                position_y=y,
+                angle=angle,
+                scale=scale
+            )
+            db.add(movement)
+            db.commit()
+
+            # Enviar datos dinámicos por WebSocket
             await websocket.send_json({
                 "positionX": x,
                 "positionY": y,
                 "angle": angle,
                 "scale": scale,
             })
-
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1.0)  # Pausa de 1.0 segundos entre iteraciones
     except WebSocketDisconnect:
-        print("WebSocket desconectado.")
+        logging.warning("WebSocket desconectado.")
     except Exception as e:
-        print(f"Error en WebSocket: {e}")
+        logging.error(f"Error en WebSocket: {e}")
+    finally:
+        db.close()
