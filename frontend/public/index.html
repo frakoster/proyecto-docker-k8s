@@ -1,17 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Visualización de Ejecuciones</title>
-    <!-- Ícono opcional -->
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-  </head>
-  <body>
-    <noscript>
-      You need to enable JavaScript to run this app.
-    </noscript>
-    <!-- Este div es donde React montará su aplicación -->
-    <div id="root"></div>
-  </body>
-</html>
+<body>
+  <div class="container">
+    <h1>Bienvenido a la Simulación de Rotación</h1>
+  </div>
+  
+  <div id="root"></div>
+
+  <script>
+    document.getElementById("startApp").addEventListener("click", function() {
+      document.querySelector(".container").style.display = "none"; // Oculta la landing
+      document.getElementById("root").style.display = "block"; // Muestra React
+      // Aquí React se renderiza automáticamente si está bien configurado
+    });
+  </script>
+</body>

@@ -26,12 +26,29 @@ const RotationCanvas = ({ positionX, positionY, angle, scale }) => {
       ctx.fill();
 
       ctx.restore();
+
+      // Agregar texto con la información
+      ctx.fillStyle = "black";
+      ctx.font = "16px Arial";
+      ctx.fillText(`Posición X: ${positionX.toFixed(2)}`, 10, 20);
+      ctx.fillText(`Posición Y: ${positionY.toFixed(2)}`, 10, 40);
+      ctx.fillText(`Ángulo: ${angle.toFixed(2)}°`, 10, 60);
+      ctx.fillText(`Escala: ${scale.toFixed(2)}`, 10, 80);
     };
 
     draw();
   }, [positionX, positionY, angle, scale]);
 
-  return <canvas ref={canvasRef} width={500} height={500} style={{ border: "1px solid black" }} />;
+  return (
+    <div style={{ textAlign: "center" }}>
+      <canvas
+        ref={canvasRef}
+        width={500}
+        height={500}
+        style={{ border: "1px solid black" }}
+      />
+    </div>
+  );
 };
 
 export default RotationCanvas;

@@ -1,11 +1,11 @@
 import logging
 import asyncio
 from math import sin, cos, radians
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, Float, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, Session
 from datetime import datetime
 
 # Configuración de la base de datos
@@ -19,6 +19,7 @@ class Execution(Base):
     __tablename__ = "executions"
     id = Column(Integer, primary_key=True, index=True)
     start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=True)
     movements = relationship("Movement", back_populates="execution")
 
 class Movement(Base):
@@ -38,6 +39,9 @@ Base.metadata.create_all(bind=engine)
 # Configuración de FastAPI
 app = FastAPI()
 
+# Variable de control para la rotación
+is_rotating = True
+
 # Configuración de logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
@@ -50,10 +54,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Dependencia para obtener la sesión de la base de datos
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 # Ruta para iniciar una nueva ejecución
 @app.post("/start")
-async def start_execution():
-    db = SessionLocal()
+async def start_execution(db: Session = Depends(get_db)):
     execution = Execution()
     try:
         db.add(execution)
@@ -65,54 +76,78 @@ async def start_execution():
         db.rollback()
         logging.error(f"Error al iniciar la ejecución: {e}")
         return {"error": "No se pudo iniciar la ejecución"}
-    finally:
-        db.close()
 
 # Ruta WebSocket para datos en tiempo real
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    global is_rotating
     db = SessionLocal()
+    execution_id = None
     try:
-        logging.info("Intentando aceptar conexión WebSocket")
         await websocket.accept()
         logging.info("Conexión WebSocket aceptada")
-        angle = 0
 
-        # Crear una nueva ejecución para los movimientos
         execution = Execution()
         db.add(execution)
         db.commit()
         db.refresh(execution)
         execution_id = execution.id
 
-        while True:
+        angle = 0
+        is_rotating = True  # Reiniciar al iniciar una nueva conexión
+
+        while is_rotating:
+            try:
+                # Verificar si hay mensaje WebSocket para detener la rotación
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
+                if message == "STOP":
+                    logging.info("Rotación detenida por el cliente WebSocket.")
+                    
+                    # Actualizar end_time en la base de datos
+                    execution.end_time = datetime.utcnow()
+                    db.commit()
+                    
+                    is_rotating = False
+                    break
+            except asyncio.TimeoutError:
+                pass  # No se recibió mensaje, continuar con la rotación
+
+            # Simulación de movimiento en círculo
             angle = (angle + 5) % 360
             x = cos(radians(angle)) * 5
             y = sin(radians(angle)) * 5
             scale = 1 + 0.1 * sin(radians(angle))
+            timestamp = datetime.utcnow()
 
-            # Guardar movimiento en la base de datos
             movement = Movement(
                 execution_id=execution_id,
                 position_x=x,
                 position_y=y,
                 angle=angle,
-                scale=scale
+                scale=scale,
+                timestamp=timestamp
             )
             db.add(movement)
             db.commit()
 
-            # Enviar datos dinámicos por WebSocket
             await websocket.send_json({
                 "positionX": x,
                 "positionY": y,
                 "angle": angle,
                 "scale": scale,
+                "timestamp": timestamp.isoformat()
             })
-            await asyncio.sleep(1.0)  # Pausa de 1.0 segundos entre iteraciones
+            await asyncio.sleep(1.0)
+
+        logging.info("Rotación detenida en el backend.")
+
     except WebSocketDisconnect:
         logging.warning("WebSocket desconectado.")
     except Exception as e:
         logging.error(f"Error en WebSocket: {e}")
     finally:
         db.close()
+
+# Agregar un log para identificar los parámetros enviados desde el frontend
+def log_frontend_parameters(endpoint: str, params: dict):
+    logging.info(f"Solicitud recibida en {endpoint} con parámetros: {params}")
