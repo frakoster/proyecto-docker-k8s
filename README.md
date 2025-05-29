@@ -26,3 +26,5 @@ Verás el siguiente frontend:
 
 Al presionar "Iniciar Rotación" se creará una instancia de rotación en el backend, la que será almacenada
 en la base de datos y luego transmitida al frontend, donde podras visualizar el movimiento del objeto "triangulo" en 360°.
+
+## Base de Datos
